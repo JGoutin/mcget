@@ -1,3 +1,5 @@
+[![PyPI](https://img.shields.io/pypi/v/mcget.svg)](https://pypi.org/project/mcget)
+
 "mcget" is a simple tool to download and update the Minecraft server or/and 
 launcher.
 
