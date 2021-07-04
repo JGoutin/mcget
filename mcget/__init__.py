@@ -16,15 +16,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from argparse import ArgumentParser as _ArgumentParser
 from hashlib import sha1 as _sha1
 from json import loads as _loads
+from lzma import decompress as _decompress
 from os.path import join as _join, isfile as _isfile, basename as _basename
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor
 from urllib.request import urlopen as _urlopen
 
 _MOJANG_BASE_URL = "https://launchermeta.mojang.com/mc"
 _MANIFEST_URL = f"{_MOJANG_BASE_URL}/game/version_manifest.json"
 _LAUNCHER_JSON_URL = f"{_MOJANG_BASE_URL}/launcher.json"
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 
 def get_server(out_dir=".", quiet=False):
@@ -78,8 +81,6 @@ def get_launcher(out_dir=".", quiet=False):
     """
     out_file = _join(out_dir, "launcher.jar")
 
-    from lzma import decompress
-
     with _urlopen(_LAUNCHER_JSON_URL) as launcher_json:
         launcher_java = _loads(launcher_json.read())["java"]
 
@@ -88,7 +89,7 @@ def get_launcher(out_dir=".", quiet=False):
         return
 
     with _urlopen(launcher_java["lzma"]["url"]) as lzma_file:
-        launcher_bytes = decompress(lzma_file.read())
+        launcher_bytes = _decompress(lzma_file.read())
 
     _verify_and_save(out_file, launcher_bytes, checksum, quiet)
 
@@ -108,7 +109,7 @@ def _verify_and_save(out_file, data, sha1_sum, quiet):
     """
     checksum = _sha1()
     checksum.update(data)
-    if checksum.hexdigest() != sha1_sum + "s":
+    if checksum.hexdigest() != sha1_sum:
         raise RuntimeError(f'"{_basename(out_file)}" checksum does not match.')
 
     updated = _isfile(out_file)
@@ -154,12 +155,11 @@ def _run_command():
     """
     Command line interface
     """
-    from argparse import ArgumentParser
-
-    parser = ArgumentParser(
+    parser = _ArgumentParser(
+        prog="mcget",
         description='"mcget" is a simple tool to download or update Minecraft Java '
         'server ("server.jar") and launcher ("launcher.jar") in a specified '
-        "directory."
+        "directory.",
     )
     parser.add_argument(
         "--launcher", "-l", action="store_true", help="Download or update launcher."
@@ -173,33 +173,39 @@ def _run_command():
         "--version", action="store_true", help="Print version and exit."
     )
 
-    args = parser.parse_args()
-
-    if args.version:
-        parser.exit(0, f"mcget {__version__}\n")
-
-    elif not args.launcher and not args.server:
-        parser.error('Require at least one of "--launcher" or "--server" arguments.')
-
-    from threading import Thread
-
-    kwargs = dict(out_dir=args.out_dir, quiet=args.quiet)
-    threads = []
-    if args.launcher:
-        threads.append(Thread(target=get_launcher, kwargs=kwargs))
-
-    if args.server:
-        threads.append(Thread(target=get_server, kwargs=kwargs))
-
     try:
-        for thread in threads:
-            thread.start()
+        args = parser.parse_args()
 
-        for thread in threads:
-            thread.join()
+        if args.version:
+            parser.exit(message=f"mcget {__version__}\n")
 
-    except RuntimeError as error:
-        parser.error(str(error))
+        elif not args.launcher and not args.server:
+            parser.error(
+                'Require at least one of "--launcher" or "--server" arguments.'
+            )
+
+        kwargs = dict(out_dir=args.out_dir, quiet=args.quiet)
+        futures = []
+        success = True
+        with _ThreadPoolExecutor() as executor:
+            if args.launcher:
+                futures.append(executor.submit(get_launcher, **kwargs))
+
+            if args.server:
+                futures.append(executor.submit(get_server, **kwargs))
+
+            for future in futures:
+                try:
+                    future.result()
+                except RuntimeError as error:
+                    print(f"Error: {error}")
+                    success = False
+
+        if not success:
+            parser.error("Operation failed")
+
+    except KeyboardInterrupt:
+        parser.exit(message="User interruption")
 
 
 if __name__ == "__main__":
