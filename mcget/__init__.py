@@ -27,7 +27,7 @@ from urllib.request import urlopen as _urlopen
 _MOJANG_BASE_URL = "https://launchermeta.mojang.com/mc"
 _MANIFEST_URL = f"{_MOJANG_BASE_URL}/game/version_manifest.json"
 _LAUNCHER_JSON_URL = f"{_MOJANG_BASE_URL}/launcher.json"
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 
 def get_server(out_dir=".", quiet=False):
